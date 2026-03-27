@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CX Assistant — 회의록 & 보고서 자동화</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: { primary: '#2563eb', 'primary-dark': '#1d4ed8' } } }
+        }
+    </script>
+    <style>
+        @keyframes pulse-rec { 0%,100%{opacity:1} 50%{opacity:.4} }
+        .rec-pulse { animation: pulse-rec 1.2s ease-in-out infinite; }
+        .tab-active { border-bottom:3px solid #2563eb; color:#2563eb; font-weight:600; }
+        .tab-inactive { border-bottom:3px solid transparent; color:#6b7280; }
+        .fade-in { animation: fadeIn .3s ease-in; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .spinner { border:3px solid #e5e7eb; border-top-color:#2563eb; border-radius:50%; width:24px; height:24px; animation:spin .8s linear infinite; display:inline-block; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        #toast { transition: transform .3s, opacity .3s; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Toast -->
+<div id="toast" class="fixed top-4 right-4 z-[100] bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg transform translate-y-[-80px] opacity-0 pointer-events-none text-sm font-medium"></div>
+
+<!-- Navigation -->
+<nav class="bg-white shadow-sm border-b sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                </div>
+                <span class="text-xl font-bold text-gray-800">CX Assistant</span>
+            </div>
+            <div class="hidden md:flex items-center space-x-1">
+                <button onclick="showPage('meeting')" id="nav-meeting" class="px-4 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-700">회의록</button>
+                <button onclick="showPage('report')" id="nav-report" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">보고서</button>
+                <button onclick="showPage('cx-data')" id="nav-cx-data" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">CX 지표</button>
+                <button onclick="showPage('history')" id="nav-history" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">이력</button>
+            </div>
+            <div class="flex items-center">
+                <div id="api-status" class="flex items-center space-x-1 px-2 py-1 rounded text-xs">
+                    <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                    <span class="text-gray-500">연결 확인 중...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="md:hidden flex border-t">
+        <button onclick="showPage('meeting')" id="mnav-meeting" class="flex-1 py-3 text-center text-sm font-medium tab-active">회의록</button>
+        <button onclick="showPage('report')" id="mnav-report" class="flex-1 py-3 text-center text-sm font-medium tab-inactive">보고서</button>
+        <button onclick="showPage('cx-data')" id="mnav-cx-data" class="flex-1 py-3 text-center text-sm font-medium tab-inactive">CX 지표</button>
+        <button onclick="showPage('history')" id="mnav-history" class="flex-1 py-3 text-center text-sm font-medium tab-inactive">이력</button>
+    </div>
+</nav>
+
+<!-- ===== PAGE: 회의록 ===== -->
+<div id="page-meeting" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-4">
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">회의 녹음 & 텍스트 입력</h2>
+                <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-sm font-medium text-gray-700">음성 녹음</span>
+                        <span id="rec-time" class="text-sm text-gray-500 font-mono">00:00</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="toggleRecording()" id="rec-btn" class="flex items-center space-x-2 px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
+                            <svg id="rec-icon-circle" class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>
+                            <svg id="rec-icon-stop" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                            <span id="rec-text">녹음 시작</span>
+                        </button>
+                        <div id="rec-indicator" class="hidden flex items-center space-x-2">
+                            <div class="w-3 h-3 bg-red-500 rounded-full rec-pulse"></div>
+                            <span class="text-sm text-red-600 font-medium">녹음 중...</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Chrome/Edge 브라우저에서 한국어 음성 인식을 지원합니다.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">회의 일시</label>
+                        <input type="date" id="meeting-date" class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">참석자</label>
+                        <input type="text" id="meeting-attendees" placeholder="이름, 이름" class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">회의 내용</label>
+                    <textarea id="meeting-input" rows="12" class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 resize-y" placeholder="음성 녹음을 시작하면 여기에 실시간 텍스트가 표시됩니다.&#10;또는 직접 텍스트를 붙여넣으세요."></textarea>
+                </div>
+                <button onclick="generateMinutes()" id="gen-btn" class="mt-4 w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <span>AI 회의록 자동 정리</span>
+                </button>
+            </div>
+        </div>
+        <div class="space-y-4">
+            <div id="result-empty" class="bg-white rounded-xl shadow-sm border p-6">
+                <div class="text-center py-12">
+                    <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <p class="text-gray-400 text-lg">회의 내용을 입력하고<br><strong>"AI 회의록 자동 정리"</strong> 버튼을 눌러주세요</p>
+                </div>
+            </div>
+            <div id="result-loading" class="hidden bg-white rounded-xl shadow-sm border p-6">
+                <div class="text-center py-16"><div class="spinner mx-auto mb-4"></div><p class="text-gray-500">AI가 회의록을 정리하고 있습니다...</p></div>
+            </div>
+            <div id="result-content" class="hidden bg-white rounded-xl shadow-sm border">
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold text-gray-800">AI 정리 결과</h2>
+                        <div class="flex items-center space-x-3">
+                            <!-- 한국어/일본어 토글 -->
+                            <div id="lang-toggle" class="hidden flex items-center bg-gray-100 rounded-lg p-0.5">
+                                <button onclick="switchLang('ko')" id="lang-ko" class="px-3 py-1.5 text-xs font-medium rounded-md bg-white shadow text-blue-700">🇰🇷 한국어</button>
+                                <button onclick="switchLang('ja')" id="lang-ja" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700">🇯🇵 日本語</button>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button onclick="translateMinutes()" id="translate-btn" class="px-3 py-1.5 text-sm border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-50 flex items-center space-x-1">
+                                    <span>🇯🇵</span><span>번역</span>
+                                </button>
+                                <button onclick="copyCurrentLang()" class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">복사</button>
+                                <button onclick="saveMinutes()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="translate-loading" class="hidden text-center py-6"><div class="spinner mx-auto mb-3"></div><p class="text-gray-500 text-sm">일본어로 번역 중...</p></div>
+                    <div id="minutes-result"></div>
+                    <div id="minutes-result-ja" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== PAGE: 보고서 ===== -->
+<div id="page-report" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1">
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">보고서 생성</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">보고서 유형</label>
+                        <select id="report-type" class="w-full px-3 py-2 border rounded-lg text-sm">
+                            <option value="weekly">주간 보고서</option>
+                            <option value="monthly">월간 보고서</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">추가 지시사항 (선택)</label>
+                        <textarea id="report-instructions" rows="3" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="예: 배송 이슈에 대한 분석을 강조해주세요"></textarea>
+                    </div>
+                </div>
+                <button onclick="generateReport()" id="report-gen-btn" class="mt-6 w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span>보고서 자동 생성</span>
+                </button>
+            </div>
+        </div>
+        <div class="lg:col-span-2">
+            <div id="report-empty" class="bg-white rounded-xl shadow-sm border p-6">
+                <div class="text-center py-16">
+                    <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <p class="text-gray-400 text-lg">옵션을 선택하고<br><strong>"보고서 자동 생성"</strong> 버튼을 눌러주세요</p>
+                    <p class="text-gray-400 text-sm mt-2">저장된 회의록과 CX 지표 데이터를 기반으로 생성됩니다</p>
+                </div>
+            </div>
+            <div id="report-loading" class="hidden bg-white rounded-xl shadow-sm border p-6">
+                <div class="text-center py-16"><div class="spinner mx-auto mb-4"></div><p class="text-gray-500">AI가 보고서를 작성하고 있습니다...</p></div>
+            </div>
+            <div id="report-content" class="hidden bg-white rounded-xl shadow-sm border">
+                <div class="border-b px-6 py-4 flex items-center justify-between">
+                    <h2 class="text-lg font-semibold text-gray-800">생성된 보고서</h2>
+                    <div class="flex space-x-2">
+                        <button onclick="copyReport()" class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">복사</button>
+                        <button onclick="downloadReport()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">다운로드</button>
+                    </div>
+                </div>
+                <div id="report-result" class="p-6 prose prose-sm max-w-none"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== PAGE: CX 지표 ===== -->
+<div id="page-cx-data" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-sm border p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">CX 지표 입력</h2>
+            <div class="space-y-4">
+                <div><label class="block text-sm font-medium text-gray-600 mb-1">날짜</label>
+                    <input type="date" id="cx-date" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">문의 유형별 건수</label>
+                    <div class="space-y-2">
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">전화</span><input type="number" id="cx-phone" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">이메일</span><input type="number" id="cx-email" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">채팅</span><input type="number" id="cx-chat" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">기타</span><input type="number" id="cx-other" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">처리 현황</label>
+                    <div class="space-y-2">
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">해결</span><input type="number" id="cx-resolved" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">진행 중</span><input type="number" id="cx-inprogress" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                        <div class="flex items-center space-x-3"><span class="text-sm text-gray-600 w-24">미해결</span><input type="number" id="cx-unresolved" value="0" class="flex-1 px-3 py-2 border rounded-lg text-sm"></div>
+                    </div>
+                </div>
+                <div><label class="block text-sm font-medium text-gray-600 mb-1">주요 이슈 / 특이사항</label>
+                    <textarea id="cx-issues" rows="3" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="오늘의 주요 이슈나 특이사항"></textarea></div>
+                <button onclick="saveCxData()" class="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">저장</button>
+            </div>
+        </div>
+        <div class="space-y-4">
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">최근 CX 지표</h2>
+                <div id="cx-summary"><p class="text-gray-400 text-center py-8">저장된 CX 지표 데이터가 없습니다.</p></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== PAGE: 이력 ===== -->
+<div id="page-history" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="bg-white rounded-xl shadow-sm border p-6">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">저장된 회의록</h2>
+        <div id="history-list"><p class="text-gray-400 text-center py-8">저장된 회의록이 없습니다.</p></div>
+    </div>
+</div>
+
+<script>
+// ===================== STATE =====================
+let recognition = null;
+let isRecording = false;
+let recSeconds = 0;
+let recTimer = null;
+let lastMinutesMarkdown = '';
+let lastReportMarkdown = '';
+let lastTranslation = '';
+let serverConnected = false;
+
+// ===================== INIT =====================
+document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('meeting-date').value = today;
+    document.getElementById('cx-date').value = today;
+    checkServerStatus();
+    refreshCxSummary();
+    refreshHistory();
+});
+
+// ===================== SERVER STATUS =====================
+async function checkServerStatus() {
+    const el = document.getElementById('api-status');
+    const dot = el.querySelector('span:first-child');
+    const label = el.querySelector('span:last-child');
+    try {
+        const resp = await fetch('/api/status');
+        if (resp.ok) {
+            const data = await resp.json();
+            serverConnected = true;
+            dot.className = 'w-2 h-2 rounded-full bg-green-500';
+            label.textContent = data.provider.toUpperCase();
+            label.className = 'text-green-600 text-xs';
+        } else { throw new Error(); }
+    } catch {
+        serverConnected = false;
+        dot.className = 'w-2 h-2 rounded-full bg-red-400';
+        label.textContent = '서버 미연결';
+        label.className = 'text-red-500 text-xs';
+    }
+}
+
+// ===================== NAVIGATION =====================
+function showPage(page) {
+    ['meeting','report','cx-data','history'].forEach(p => {
+        document.getElementById('page-'+p).classList.toggle('hidden', p!==page);
+        const n = document.getElementById('nav-'+p);
+        if(n) { n.classList.toggle('bg-blue-50',p===page); n.classList.toggle('text-blue-700',p===page); n.classList.toggle('text-gray-600',p!==page); }
+        const m = document.getElementById('mnav-'+p);
+        if(m) { m.classList.toggle('tab-active',p===page); m.classList.toggle('tab-inactive',p!==page); }
+    });
+}
+
+// ===================== TOAST =====================
+function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `fixed top-4 right-4 z-[100] px-4 py-2 rounded-lg shadow-lg text-sm font-medium text-white ${type==='error'?'bg-red-600':'bg-green-600'}`;
+    t.style.transform = 'translateY(0)'; t.style.opacity = '1'; t.style.pointerEvents = 'auto';
+    setTimeout(() => { t.style.transform='translateY(-80px)'; t.style.opacity='0'; t.style.pointerEvents='none'; }, 2500);
+}
+
+// ===================== SPEECH RECOGNITION =====================
+function toggleRecording() { if (!isRecording) startRecording(); else stopRecording(); }
+function startRecording() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showToast('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.','error'); return; }
+    recognition = new SR();
+    recognition.lang = 'ko-KR'; recognition.continuous = true; recognition.interimResults = true;
+    let finalTranscript = document.getElementById('meeting-input').value;
+    recognition.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript + ' ';
+            else interim += e.results[i][0].transcript;
+        }
+        document.getElementById('meeting-input').value = finalTranscript + interim;
+    };
+    recognition.onerror = (e) => { if(e.error!=='no-speech') showToast('음성 인식 오류: '+e.error,'error'); };
+    recognition.onend = () => { if(isRecording) recognition.start(); };
+    recognition.start();
+    isRecording = true; recSeconds = 0;
+    document.getElementById('rec-text').textContent = '녹음 중지';
+    document.getElementById('rec-btn').classList.replace('bg-red-500','bg-gray-700');
+    document.getElementById('rec-btn').classList.replace('hover:bg-red-600','hover:bg-gray-800');
+    document.getElementById('rec-icon-circle').classList.add('hidden');
+    document.getElementById('rec-icon-stop').classList.remove('hidden');
+    document.getElementById('rec-indicator').classList.remove('hidden');
+    recTimer = setInterval(() => {
+        recSeconds++;
+        document.getElementById('rec-time').textContent = String(Math.floor(recSeconds/60)).padStart(2,'0')+':'+String(recSeconds%60).padStart(2,'0');
+    }, 1000);
+}
+function stopRecording() {
+    if(recognition) { recognition.onend = null; recognition.stop(); }
+    isRecording = false; clearInterval(recTimer);
+    document.getElementById('rec-text').textContent = '녹음 시작';
+    document.getElementById('rec-btn').classList.replace('bg-gray-700','bg-red-500');
+    document.getElementById('rec-btn').classList.replace('hover:bg-gray-800','hover:bg-red-600');
+    document.getElementById('rec-icon-circle').classList.remove('hidden');
+    document.getElementById('rec-icon-stop').classList.add('hidden');
+    document.getElementById('rec-indicator').classList.add('hidden');
+}
+
+// ===================== AI API (백엔드 프록시) =====================
+async function callAI(systemPrompt, userMessage) {
+    if (!serverConnected) {
+        throw new Error('서버가 연결되지 않았습니다. 터미널에서 "node server.js"를 실행해주세요.');
+    }
+    const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, userMessage })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'AI API 오류');
+    return data.result;
+}
+
+// ===================== MEETING MINUTES =====================
+async function generateMinutes() {
+    const text = document.getElementById('meeting-input').value.trim();
+    if (!text) { showToast('회의 내용을 입력해주세요','error'); return; }
+    document.getElementById('result-empty').classList.add('hidden');
+    document.getElementById('result-content').classList.add('hidden');
+    document.getElementById('result-loading').classList.remove('hidden');
+    document.getElementById('gen-btn').disabled = true;
+    // 번역 상태 초기화
+    lastTranslation = '';
+    currentLang = 'ko';
+    document.getElementById('lang-toggle').classList.add('hidden');
+    document.getElementById('translate-btn').classList.remove('hidden');
+    document.getElementById('minutes-result-ja').classList.add('hidden');
+    document.getElementById('minutes-result-ja').innerHTML = '';
+
+    const systemPrompt = `당신은 CX팀 회의록 정리 전문가입니다. 회의 내용을 분석하여 구조화된 회의록을 JSON으로 반환하세요.
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 JSON만 반환하세요.
+{
+  "title": "회의 제목",
+  "date": "회의 일시",
+  "attendees": "참석자",
+  "agendas": [{"title":"안건제목","summary":"논의내용요약"}],
+  "decisions": ["결정사항1","결정사항2"],
+  "actionItems": [{"assignee":"담당자","task":"할일","deadline":"기한"}]
+}`;
+    const userMsg = `회의 일시: ${document.getElementById('meeting-date').value}\n참석자: ${document.getElementById('meeting-attendees').value}\n회의 내용:\n${text}`;
+
+    try {
+        let result = await callAI(systemPrompt, userMsg);
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('AI 응답을 파싱할 수 없습니다.');
+        const data = JSON.parse(jsonMatch[0]);
+        renderMinutes(data);
+        lastMinutesMarkdown = minutesToMarkdown(data);
+    } catch(e) {
+        showToast('오류: '+e.message, 'error');
+        document.getElementById('result-empty').classList.remove('hidden');
+    } finally {
+        document.getElementById('result-loading').classList.add('hidden');
+        document.getElementById('gen-btn').disabled = false;
+    }
+}
+
+function renderMinutes(data) {
+    const el = document.getElementById('minutes-result');
+    el.innerHTML = `
+        <div class="bg-blue-50 rounded-lg p-4 mb-4 fade-in">
+            <h3 class="text-sm font-semibold text-blue-800 mb-2">📋 회의 정보</h3>
+            <div class="text-sm text-blue-700 space-y-1">
+                <p><strong>제목:</strong> ${esc(data.title)}</p>
+                <p><strong>일시:</strong> ${esc(data.date)}</p>
+                <p><strong>참석자:</strong> ${esc(data.attendees)}</p>
+            </div>
+        </div>
+        <div class="mb-4 fade-in">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">📌 안건별 논의 내용</h3>
+            <div class="space-y-3">${data.agendas.map((a,i) => `
+                <div class="border-l-4 border-blue-400 pl-3 py-1">
+                    <p class="font-medium text-sm text-gray-800">${i+1}. ${esc(a.title)}</p>
+                    <p class="text-sm text-gray-600 mt-1">${esc(a.summary)}</p>
+                </div>`).join('')}
+            </div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-4 mb-4 fade-in">
+            <h3 class="text-sm font-semibold text-green-800 mb-2">✅ 결정사항</h3>
+            <ul class="text-sm text-green-700 space-y-1">${data.decisions.map(d => `<li>• ${esc(d)}</li>`).join('')}</ul>
+        </div>
+        <div class="bg-amber-50 rounded-lg p-4 fade-in">
+            <h3 class="text-sm font-semibold text-amber-800 mb-2">🎯 액션 아이템</h3>
+            <div class="space-y-2">${data.actionItems.map(a => `
+                <div class="flex items-start space-x-3 text-sm">
+                    <input type="checkbox" class="mt-1 rounded">
+                    <div>
+                        <p class="text-amber-800"><strong>${esc(a.assignee)}</strong> — ${esc(a.task)}</p>
+                        <p class="text-amber-600">기한: ${esc(a.deadline)}</p>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    document.getElementById('result-content').classList.remove('hidden');
+    window._lastMinutesData = data;
+}
+
+function minutesToMarkdown(data) {
+    let md = `# ${data.title}\n\n- **일시:** ${data.date}\n- **참석자:** ${data.attendees}\n\n## 안건별 논의 내용\n\n`;
+    data.agendas.forEach((a,i) => { md += `### ${i+1}. ${a.title}\n${a.summary}\n\n`; });
+    md += `## 결정사항\n\n`; data.decisions.forEach(d => { md += `- ${d}\n`; });
+    md += `\n## 액션 아이템\n\n| 담당자 | 할 일 | 기한 |\n|--------|-------|------|\n`;
+    data.actionItems.forEach(a => { md += `| ${a.assignee} | ${a.task} | ${a.deadline} |\n`; });
+    return md;
+}
+
+function copyMinutes() { navigator.clipboard.writeText(lastMinutesMarkdown).then(()=>showToast('회의록이 클립보드에 복사되었습니다')); }
+
+// ===================== LANG TOGGLE & TRANSLATE =====================
+let currentLang = 'ko';
+
+function switchLang(lang) {
+    currentLang = lang;
+    const koBtn = document.getElementById('lang-ko');
+    const jaBtn = document.getElementById('lang-ja');
+    const koResult = document.getElementById('minutes-result');
+    const jaResult = document.getElementById('minutes-result-ja');
+    if (lang === 'ko') {
+        koBtn.className = 'px-3 py-1.5 text-xs font-medium rounded-md bg-white shadow text-blue-700';
+        jaBtn.className = 'px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700';
+        koResult.classList.remove('hidden');
+        jaResult.classList.add('hidden');
+    } else {
+        jaBtn.className = 'px-3 py-1.5 text-xs font-medium rounded-md bg-white shadow text-purple-700';
+        koBtn.className = 'px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700';
+        koResult.classList.add('hidden');
+        jaResult.classList.remove('hidden');
+    }
+}
+
+function copyCurrentLang() {
+    const text = currentLang === 'ko' ? lastMinutesMarkdown : lastTranslation;
+    if (!text) { showToast('복사할 내용이 없습니다','error'); return; }
+    navigator.clipboard.writeText(text).then(() => showToast(currentLang === 'ko' ? '한국어 회의록이 복사되었습니다' : '일본어 번역이 복사되었습니다'));
+}
+
+async function translateMinutes() {
+    if (!lastMinutesMarkdown) { showToast('번역할 회의록이 없습니다','error'); return; }
+    // 이미 번역이 있으면 바로 토글
+    if (lastTranslation) { switchLang('ja'); return; }
+
+    document.getElementById('translate-loading').classList.remove('hidden');
+    document.getElementById('minutes-result').classList.add('hidden');
+    document.getElementById('translate-btn').disabled = true;
+
+    const systemPrompt = `あなたはプロの日韓翻訳者です。韓国語の会議録を日本語に正確に翻訳してください。
+ビジネス文書にふさわしい丁寧な日本語（です・ます調）で翻訳し、マークダウン形式を維持してください。
+固有名詞（人名・会社名など）はそのまま残してください。`;
+
+    try {
+        lastTranslation = await callAI(systemPrompt, lastMinutesMarkdown);
+        document.getElementById('minutes-result-ja').innerHTML = `
+            <div class="bg-purple-50 rounded-lg p-4 fade-in">
+                <div class="text-sm text-gray-800">${markdownToHtml(lastTranslation)}</div>
+            </div>`;
+        document.getElementById('lang-toggle').classList.remove('hidden');
+        document.getElementById('translate-btn').classList.add('hidden');
+        switchLang('ja');
+        showToast('일본어 번역이 완료되었습니다');
+    } catch(e) {
+        showToast('번역 오류: '+e.message, 'error');
+        document.getElementById('minutes-result').classList.remove('hidden');
+    } finally {
+        document.getElementById('translate-loading').classList.add('hidden');
+        document.getElementById('translate-btn').disabled = false;
+    }
+}
+
+async function saveMinutes() {
+    if (!window._lastMinutesData) return;
+    const data = window._lastMinutesData;
+    await dbPut('minutes', {
+        id: Date.now(), date: data.date, title: data.title, attendees: data.attendees,
+        data: data, markdown: lastMinutesMarkdown, rawText: document.getElementById('meeting-input').value
+    });
+    showToast('회의록이 저장되었습니다');
+    refreshHistory();
+}
+
+// ===================== REPORT =====================
+async function generateReport() {
+    document.getElementById('report-empty').classList.add('hidden');
+    document.getElementById('report-content').classList.add('hidden');
+    document.getElementById('report-loading').classList.remove('hidden');
+    document.getElementById('report-gen-btn').disabled = true;
+
+    const minutes = await dbGetAll('minutes');
+    const cxData = await dbGetAll('cxdata');
+    const instructions = document.getElementById('report-instructions').value;
+    const reportType = document.getElementById('report-type').value;
+
+    let context = `저장된 회의록 ${minutes.length}건:\n`;
+    minutes.slice(-5).forEach(m => { context += `- [${m.date}] ${m.title}: ${m.markdown?.substring(0,300)||''}\n`; });
+    context += `\nCX 지표 데이터 ${cxData.length}건:\n`;
+    cxData.slice(-7).forEach(c => {
+        const total = (c.phone||0)+(c.email||0)+(c.chat||0)+(c.other||0);
+        context += `- [${c.date}] 총문의:${total}, 해결:${c.resolved||0}, 진행중:${c.inprogress||0}, 미해결:${c.unresolved||0}, 이슈:${c.issues||'없음'}\n`;
+    });
+
+    const systemPrompt = `당신은 CX팀 보고서 작성 전문가입니다. 제공된 회의록과 CX 지표 데이터를 기반으로 ${reportType==='weekly'?'주간':'월간'} 보고서를 작성하세요.
+마크다운 형식으로 작성하되, 다음 섹션을 포함하세요: 1.주요 활동 요약, 2.CX 지표 현황(수치 포함), 3.주요 이슈 및 특이사항, 4.다음 주 계획.
+데이터가 부족하면 있는 데이터 기반으로 최선의 보고서를 작성하세요.`;
+
+    try {
+        lastReportMarkdown = await callAI(systemPrompt, `${context}\n\n${instructions ? '추가 지시사항: '+instructions : ''}`);
+        document.getElementById('report-result').innerHTML = markdownToHtml(lastReportMarkdown);
+        document.getElementById('report-content').classList.remove('hidden');
+    } catch(e) {
+        showToast('오류: '+e.message,'error');
+        document.getElementById('report-empty').classList.remove('hidden');
+    } finally {
+        document.getElementById('report-loading').classList.add('hidden');
+        document.getElementById('report-gen-btn').disabled = false;
+    }
+}
+
+function copyReport() { navigator.clipboard.writeText(lastReportMarkdown).then(()=>showToast('보고서가 클립보드에 복사되었습니다')); }
+function downloadReport() {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lastReportMarkdown], {type:'text/markdown'}));
+    a.download = `CX-보고서-${new Date().toISOString().split('T')[0]}.md`; a.click();
+    showToast('보고서가 다운로드되었습니다');
+}
+
+// ===================== CX DATA =====================
+async function saveCxData() {
+    await dbPut('cxdata', {
+        id: Date.now(), date: document.getElementById('cx-date').value,
+        phone: parseInt(document.getElementById('cx-phone').value)||0,
+        email: parseInt(document.getElementById('cx-email').value)||0,
+        chat: parseInt(document.getElementById('cx-chat').value)||0,
+        other: parseInt(document.getElementById('cx-other').value)||0,
+        resolved: parseInt(document.getElementById('cx-resolved').value)||0,
+        inprogress: parseInt(document.getElementById('cx-inprogress').value)||0,
+        unresolved: parseInt(document.getElementById('cx-unresolved').value)||0,
+        issues: document.getElementById('cx-issues').value
+    });
+    showToast('CX 지표가 저장되었습니다');
+    refreshCxSummary();
+}
+
+async function refreshCxSummary() {
+    const data = await dbGetAll('cxdata');
+    const el = document.getElementById('cx-summary');
+    if (!data.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8">저장된 CX 지표 데이터가 없습니다.</p>'; return; }
+    const recent = data.slice(-7).reverse();
+    let totalAll=0, resolvedAll=0;
+    recent.forEach(d => { totalAll+=d.phone+d.email+d.chat+d.other; resolvedAll+=d.resolved; });
+    const rate = totalAll ? Math.round(resolvedAll/totalAll*100) : 0;
+    el.innerHTML = `
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div class="bg-blue-50 rounded-lg p-4"><p class="text-3xl font-bold text-blue-700">${totalAll}</p><p class="text-sm text-blue-600">최근 ${recent.length}일 총 문의</p></div>
+            <div class="bg-green-50 rounded-lg p-4"><p class="text-3xl font-bold text-green-700">${rate}%</p><p class="text-sm text-green-600">처리율</p></div>
+        </div>
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">최근 입력</h3>
+        <div class="space-y-2">${recent.map(d => {
+            const t=d.phone+d.email+d.chat+d.other; const r=t?Math.round(d.resolved/t*100):0;
+            return `<div class="flex items-center justify-between py-2 border-b last:border-0">
+                <div><p class="text-sm font-medium text-gray-800">${d.date}</p><p class="text-xs text-gray-500">문의 ${t}건 | 처리율 ${r}%</p></div>
+                <button onclick="deleteCxData(${d.id})" class="text-xs text-red-400 hover:text-red-600">삭제</button></div>`;
+        }).join('')}</div>`;
+}
+async function deleteCxData(id) { await dbDelete('cxdata',id); refreshCxSummary(); showToast('삭제되었습니다'); }
+
+// ===================== HISTORY =====================
+async function refreshHistory() {
+    const data = await dbGetAll('minutes');
+    const el = document.getElementById('history-list');
+    if (!data.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8">저장된 회의록이 없습니다.</p>'; return; }
+    el.innerHTML = data.reverse().map(m => `
+        <div class="border-b last:border-0 py-4">
+            <div class="flex items-center justify-between">
+                <div><p class="font-medium text-gray-800">${esc(m.title||'제목없음')}</p><p class="text-sm text-gray-500">${esc(m.date)} | ${esc(m.attendees||'')}</p></div>
+                <div class="flex space-x-2">
+                    <button onclick="viewMinutes(${m.id})" class="px-3 py-1 text-xs border rounded hover:bg-gray-50">보기</button>
+                    <button onclick="copyHistoryMinutes(${m.id})" class="px-3 py-1 text-xs border rounded hover:bg-gray-50">복사</button>
+                    <button onclick="deleteMinutes(${m.id})" class="px-3 py-1 text-xs text-red-500 border border-red-200 rounded hover:bg-red-50">삭제</button>
+                </div>
+            </div>
+        </div>`).join('');
+}
+async function viewMinutes(id) { const m=await dbGet('minutes',id); if(m&&m.data){renderMinutes(m.data);lastMinutesMarkdown=m.markdown;showPage('meeting');} }
+async function copyHistoryMinutes(id) { const m=await dbGet('minutes',id); if(m&&m.markdown) navigator.clipboard.writeText(m.markdown).then(()=>showToast('복사되었습니다')); }
+async function deleteMinutes(id) { await dbDelete('minutes',id); refreshHistory(); showToast('삭제되었습니다'); }
+
+// ===================== IndexedDB =====================
+function openDB() {
+    return new Promise((resolve,reject) => {
+        const req = indexedDB.open('cx-assistant',2);
+        req.onupgradeneeded = e => { const db=e.target.result; if(!db.objectStoreNames.contains('minutes'))db.createObjectStore('minutes',{keyPath:'id'}); if(!db.objectStoreNames.contains('cxdata'))db.createObjectStore('cxdata',{keyPath:'id'}); };
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
+    });
+}
+async function dbPut(store,data) { const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(data);tx.oncomplete=res;tx.onerror=e=>rej(e.target.error);}); }
+async function dbGetAll(store) { const db=await openDB(); return new Promise((res,rej)=>{const req=db.transaction(store,'readonly').objectStore(store).getAll();req.onsuccess=()=>res(req.result);req.onerror=e=>rej(e.target.error);}); }
+async function dbGet(store,id) { const db=await openDB(); return new Promise((res,rej)=>{const req=db.transaction(store,'readonly').objectStore(store).get(id);req.onsuccess=()=>res(req.result);req.onerror=e=>rej(e.target.error);}); }
+async function dbDelete(store,id) { const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).delete(id);tx.oncomplete=res;tx.onerror=e=>rej(e.target.error);}); }
+
+// ===================== UTILS =====================
+function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function markdownToHtml(md) {
+    return md.replace(/^### (.*$)/gm,'<h3 class="text-base font-semibold text-gray-800 mt-4 mb-2">$1</h3>')
+        .replace(/^## (.*$)/gm,'<h2 class="text-lg font-semibold text-gray-800 mt-6 mb-3">$1</h2>')
+        .replace(/^# (.*$)/gm,'<h1 class="text-xl font-bold text-gray-800 mt-6 mb-3">$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+        .replace(/^- (.*$)/gm,'<li class="ml-4 text-sm text-gray-700">$1</li>')
+        .replace(/(<li.*<\/li>\n?)+/g,'<ul class="list-disc space-y-1 my-2">$&</ul>')
+        .replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>');
+}
+</script>
+</body>
+</html>
