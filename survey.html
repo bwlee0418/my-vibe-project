@@ -26,7 +26,7 @@
         </div>
         <h1 class="text-2xl font-bold text-gray-900 mb-1">바이브 코딩 워크숍</h1>
         <p class="text-lg text-blue-600 font-medium">만족도 조사</p>
-        <p class="text-sm text-gray-500 mt-2">소요 시간: 약 2분 | 총 8문항</p>
+        <p class="text-sm text-gray-500 mt-2">소요 시간: 약 2분 | 총 9문항</p>
     </div>
 
     <!-- Progress Bar -->
@@ -121,12 +121,20 @@
             <textarea name="q7" id="q7" rows="3" required oninput="updateProgress()" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none" placeholder="예: 회의록 자동 정리 도구를 만들어서 매일 반복되는 수작업을 줄이고 싶었습니다."></textarea>
         </div>
 
-        <!-- Q8: Mockup URL (주관식, 선택) -->
+        <!-- Q8: 강의 소감 (주관식, 선택) -->
         <div class="bg-white rounded-2xl shadow-sm border p-6 fade-in" data-q="8">
             <p class="text-sm text-blue-600 font-semibold mb-1">Q8</p>
+            <h2 class="text-lg font-bold text-gray-900 mb-1">강의 소감을 자유롭게 남겨주세요.</h2>
+            <p class="text-sm text-gray-500 mb-4">선택 사항</p>
+            <textarea name="q8" id="q8" rows="3" oninput="updateProgress()" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none" placeholder="좋았던 점, 아쉬웠던 점, 개선 사항 등 자유롭게 작성해주세요."></textarea>
+        </div>
+
+        <!-- Q9: Mockup URL (주관식, 선택) -->
+        <div class="bg-white rounded-2xl shadow-sm border p-6 fade-in" data-q="9">
+            <p class="text-sm text-blue-600 font-semibold mb-1">Q9</p>
             <h2 class="text-lg font-bold text-gray-900 mb-1">제작하신 Mockup URL을 공유해주세요.</h2>
             <p class="text-sm text-gray-500 mb-4">선택 사항 (GitHub Pages 링크 등)</p>
-            <input type="url" name="q8" id="q8" oninput="updateProgress()" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="https://username.github.io/my-project/mockup.html">
+            <input type="url" name="q9" id="q9" oninput="updateProgress()" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="https://username.github.io/my-project/mockup.html">
         </div>
 
         <!-- Submit -->
@@ -147,7 +155,7 @@
 </div>
 
 <script>
-const TOTAL = 8;
+const TOTAL = 9;
 
 function countAnswered() {
     let count = 0;
@@ -159,6 +167,7 @@ function countAnswered() {
     if (document.querySelector('input[name="q6"]:checked')) count++;
     if (document.getElementById('q7').value.trim()) count++;
     if (document.getElementById('q8').value.trim()) count++;
+    if (document.getElementById('q9').value.trim()) count++;
     return count;
 }
 
@@ -181,7 +190,8 @@ function handleSubmit(e) {
         willUse: form.q5.value,
         moreTraining: form.q6.value,
         topic: form.q7.value,
-        mockupUrl: form.q8.value || '(미입력)',
+        feedback: form.q8.value || '',
+        mockupUrl: form.q9.value || '(미입력)',
     };
 
     // Google Sheets 전송용 데이터 매핑
@@ -193,6 +203,7 @@ function handleSubmit(e) {
         time: data.useful.join(', '),
         nextWorkshop: data.moreTraining,
         topic: data.topic,
+        feedback: data.feedback,
         mockupUrl: data.mockupUrl
     };
 
@@ -230,6 +241,7 @@ function showResult(data) {
             <div class="flex justify-between py-2 border-b"><span class="text-gray-500">활용 의향</span><span class="font-medium text-gray-900">${scores[data.willUse]} (${data.willUse}점)</span></div>
             <div class="flex justify-between py-2 border-b"><span class="text-gray-500">추가 교육</span><span class="font-medium text-gray-900">${data.moreTraining}</span></div>
             <div class="py-2 border-b"><p class="text-gray-500 mb-1">해결하고자 한 주제</p><p class="font-medium text-gray-900">${data.topic}</p></div>
+            <div class="py-2 border-b"><p class="text-gray-500 mb-1">강의 소감</p><p class="font-medium text-gray-900">${data.feedback || '(미입력)'}</p></div>
             <div class="py-2"><p class="text-gray-500 mb-1">Mockup URL</p><p class="font-medium text-blue-600 break-all">${data.mockupUrl.startsWith('http') ? '<a href="'+data.mockupUrl+'" target="_blank" class="underline">'+data.mockupUrl+'</a>' : data.mockupUrl}</p></div>
         </div>
         <p class="text-xs text-green-600 mt-4 text-center">Google Sheets에 응답이 기록되었습니다.</p>
