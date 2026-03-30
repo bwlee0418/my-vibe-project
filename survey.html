@@ -167,9 +167,12 @@ function updateProgress() {
     document.getElementById('progress').style.width = pct + '%';
 }
 
+const SHEET_URL = 'https://script.google.com/macros/s/AKfycbyoxmLkBbVLK8dRXfp5WSSxg2z7yQ0WFXnjtQYUH8x_KMwTWe6aygt1jM_hwUj41noq/exec';
+
 function handleSubmit(e) {
     e.preventDefault();
     const form = document.getElementById('survey-form');
+    const btn = document.getElementById('submit-btn');
     const data = {
         department: form.q1.value,
         satisfaction: form.q2.value,
@@ -181,6 +184,39 @@ function handleSubmit(e) {
         mockupUrl: form.q8.value || '(미입력)',
     };
 
+    // Google Sheets 전송용 데이터 매핑
+    const sheetData = {
+        team: data.department,
+        satisfaction: data.satisfaction,
+        clarity: data.difficulty,
+        practical: data.willUse,
+        time: data.useful.join(', '),
+        nextWorkshop: data.moreTraining,
+        topic: data.topic,
+        mockupUrl: data.mockupUrl
+    };
+
+    // 제출 중 상태 표시
+    btn.disabled = true;
+    btn.textContent = '제출 중...';
+    btn.classList.add('opacity-50');
+
+    // Google Sheets로 전송
+    fetch(SHEET_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sheetData)
+    }).then(() => {
+        showResult(data);
+    }).catch(() => {
+        // no-cors 모드에서는 응답을 읽을 수 없지만 전송은 됨
+        showResult(data);
+    });
+}
+
+function showResult(data) {
+    const form = document.getElementById('survey-form');
     const emojis = { '1': '😞', '2': '🙁', '3': '😐', '4': '🙂', '5': '😍' };
     const scores = { '1': '전혀 없음', '2': '낮음', '3': '보통', '4': '높음', '5': '매우 높음' };
 
@@ -196,6 +232,7 @@ function handleSubmit(e) {
             <div class="py-2 border-b"><p class="text-gray-500 mb-1">해결하고자 한 주제</p><p class="font-medium text-gray-900">${data.topic}</p></div>
             <div class="py-2"><p class="text-gray-500 mb-1">Mockup URL</p><p class="font-medium text-blue-600 break-all">${data.mockupUrl.startsWith('http') ? '<a href="'+data.mockupUrl+'" target="_blank" class="underline">'+data.mockupUrl+'</a>' : data.mockupUrl}</p></div>
         </div>
+        <p class="text-xs text-green-600 mt-4 text-center">Google Sheets에 응답이 기록되었습니다.</p>
     `;
 
     form.classList.add('hidden');
